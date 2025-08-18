@@ -16,7 +16,7 @@ llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash", temperature=0.2)
 
 # Configuração da página
 st.set_page_config(page_title="Pesquisa de Interações", layout="centered")
-st.title("🔍 Pesquisa de Interações entre Ativos (por artigo)")
+st.title("🔍 Pesquisa de Interações entre Vitaminas")
 
 # Histórico do chat
 if "messages" not in st.session_state:
