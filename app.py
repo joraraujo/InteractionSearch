@@ -4,7 +4,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from Bio import Entrez
 import streamlit as st
 import pandas as pd
-from io import BytesIO
 
 # =============================
 # Configurações iniciais
@@ -71,29 +70,21 @@ def markdown_to_df(md_text: str) -> pd.DataFrame:
     linhas_validas = []
     for raw in md_text.splitlines():
         line = raw.strip()
-        if not line:
+        if not line or "|" not in line:
             continue
-        # ignora cabeçalho e separadores
         if "Substâncias envolvidas" in line or set(line.replace("|", "").strip()) == {"-"}:
             continue
-        if "|" not in line:
-            continue
 
-        # remove pipes das pontas e divide
         cells = [c.strip() for c in line.strip("|").split("|")]
+        cells = [c for c in cells if c != ""]  # remove células vazias
 
-        # remove células vazias resultantes de pipes duplos
-        cells = [c for c in cells if c != ""]
-
-        # normaliza quantidade de colunas (sempre 5)
         if len(cells) < 5:
             cells += [""] * (5 - len(cells))
         elif len(cells) > 5:
-            # junta o excesso na última coluna
             cells = cells[:4] + [" | ".join(cells[4:])]
 
-        # correção de deslocamento: se a 1ª estiver vazia e a 2ª contiver " + "
-        if cells and cells[0] == "" and len(cells) > 1 and " + " in cells[1]:
+        # correção de deslocamento
+        if cells[0] == "" and len(cells) > 1 and " + " in cells[1]:
             cells = [cells[1]] + cells[2:] + [""]
 
         linhas_validas.append(cells[:5])
@@ -101,14 +92,12 @@ def markdown_to_df(md_text: str) -> pd.DataFrame:
     df = pd.DataFrame(linhas_validas, columns=colunas)
     if df.empty:
         return df
-    # substitui strings vazias por "não informado"
     df = df.replace({"": "não informado"})
     return df
 
 def prompt_por_artigo(par, artigo):
     """
-    Monta prompt restrito para que o LLM analise UM único abstract e retorne UMA linha.
-    Regras de formatação estritas para minimizar parse errors.
+    Monta prompt para análise de um único artigo.
     """
     a1, a2 = par
     prompt = (
@@ -132,8 +121,8 @@ def prompt_por_artigo(par, artigo):
 
 def gerar_tabela_interacoes(ativos, max_por_par=5):
     """
-    Para cada par: busca até max_por_par artigos e pede ao LLM que analise cada artigo separadamente,
-    retornando uma linha por artigo. Retorna DataFrame consolidado (uma linha por artigo/par).
+    Para cada par: busca até max_por_par artigos e pede ao LLM que analise cada artigo separadamente.
+    Retorna DataFrame consolidado (uma linha por artigo).
     """
     pares = list(itertools.combinations(ativos, 2))
     df_total = pd.DataFrame(columns=[
@@ -154,7 +143,6 @@ def gerar_tabela_interacoes(ativos, max_por_par=5):
         artigos = buscar_artigos_pubmed(a1, a2, max_artigos=max_por_par)
 
         if not artigos:
-            # nenhum artigo: adiciona linha de "sem artigo"
             df_total = pd.concat([df_total, pd.DataFrame([{
                 "Substâncias envolvidas": f"{a1} + {a2}",
                 "Existe interação? (sim/não)": "não informado",
@@ -173,16 +161,12 @@ def gerar_tabela_interacoes(ativos, max_por_par=5):
                 resposta = llm.invoke(prompt).content
             except Exception as e:
                 resposta = ""
-            # tenta fazer parser
+
             df_parsed = markdown_to_df(resposta)
             if not df_parsed.empty:
-                # se parse ok, garante que coluna Link contenha o link do artigo (por segurança)
-                df_parsed.loc[:, "Link da fonte"] = df_parsed.loc[:, "Link da fonte"].apply(
-                    lambda x: artigo['link'] if ("pubmed" in artigo['link'] and (x == "não informado" or "http" not in x)) else x
-                )
+                df_parsed.loc[:, "Link da fonte"] = artigo['link']  # Garante link correto
                 df_total = pd.concat([df_total, df_parsed], ignore_index=True)
             else:
-                # fallback: adiciona linha com pouca informação mas o link
                 df_total = pd.concat([df_total, pd.DataFrame([{
                     "Substâncias envolvidas": f"{a1} + {a2}",
                     "Existe interação? (sim/não)": "não informado",
@@ -191,16 +175,8 @@ def gerar_tabela_interacoes(ativos, max_por_par=5):
                     "Link da fonte": artigo['link'],
                 }])], ignore_index=True)
 
-    # limpeza final: padroniza strings vazias
     df_total = df_total.fillna("não informado")
     return df_total
-
-def baixar_excel(df):
-    """Converte DataFrame em arquivo Excel para download."""
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False, sheet_name="Interações")
-    return output.getvalue()
 
 # =============================
 # UI Streamlit
@@ -211,7 +187,6 @@ with st.sidebar:
     max_por_par = st.slider("Máx. artigos por par", min_value=1, max_value=20, value=5, step=1,
                             help="Número máximo de artigos PubMed a buscar por cada par de ativos.")
     temperature = st.slider("Temperatura do LLM", min_value=0.0, max_value=1.0, value=0.2, step=0.1)
-    # atualiza temperatura do LLM se alterada
     llm.temperature = temperature
 
 st.markdown("Digite os ativos separados por vírgula no campo de chat abaixo.")
@@ -233,23 +208,8 @@ if prompt := st.chat_input("Informe os ativos separados por vírgula..."):
         with st.spinner("Executando buscas e análises (isso pode levar um tempo)..."):
             df = gerar_tabela_interacoes(ativos, max_por_par=max_por_par)
 
-        # Exibe no chat
         with st.chat_message("assistant"):
             st.dataframe(df, use_container_width=True)
-
-            # Botões de download
-            st.download_button(
-                label="⬇️ Baixar em Excel",
-                data=baixar_excel(df),
-                file_name="interacoes_por_artigo.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-            st.download_button(
-                label="⬇️ Baixar em CSV",
-                data=df.to_csv(index=False).encode("utf-8"),
-                file_name="interacoes_por_artigo.csv",
-                mime="text/csv"
-            )
+            st.markdown("👆 Tabela gerada. Use o ícone de download (⬇️) no canto inferior direito para baixar como CSV.")
 
         st.session_state.messages.append({"role": "assistant", "content": "Segue a tabela (uma linha por artigo)."})
