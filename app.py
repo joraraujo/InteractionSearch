@@ -16,27 +16,99 @@ llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash", temperature=0.2)
 
 # Configuração da página
 st.set_page_config(page_title="Pesquisa de Interações", layout="centered")
-st.title("🔍 Pesquisa de Interações entre Ativos (por artigo)")
 st.title("🔍 Pesquisa de Interações")
 
 # Histórico do chat
 if "messages" not in st.session_state:
-@@ -55,10 +55,6 @@
+    st.session_state.messages = []
+
+# Exibe histórico
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# =============================
+# Funções auxiliares
+# =============================
+
+def buscar_artigos_pubmed(a1, a2, max_artigos=5):
+    """
+    Busca artigos no PubMed e retorna lista de dicts com id, resumo e link.
+    """
+    query = f"{a1} AND {a2}"
+    handle = Entrez.esearch(db="pubmed", term=query, retmax=max_artigos)
+    record = Entrez.read(handle)
+    ids = record.get("IdList", [])
+
+    artigos = []
+    for id in ids:
+        try:
+            handle = Entrez.efetch(db="pubmed", id=id, rettype="abstract", retmode="text")
+            resumo = handle.read().strip()
+        except Exception:
+            resumo = "Resumo não disponível"
+        artigos.append({
+            "id": id,
+            "resumo": resumo if resumo else "Resumo não disponível",
+            "link": f"https://pubmed.ncbi.nlm.nih.gov/{id}"
+        })
     return artigos
 
 def markdown_to_df(md_text: str) -> pd.DataFrame:
-    """
-    Parser robusto para linhas Markdown com pipes.
-    Retorna DataFrame com as 5 colunas esperadas.
-    """
     colunas = [
         "Substâncias envolvidas",
         "Existe interação? (sim/não)",
-@@ -113,102 +109,102 @@
+        "Tipo de interação",
+        "Forma farmacêutica",
+        "Link da fonte",
+    ]
+
+    linhas_validas = []
+    for raw in md_text.splitlines():
+        line = raw.strip()
+        if not line or "|" not in line:
+            continue
+        if "Substâncias envolvidas" in line or set(line.replace("|", "").strip()) == {"-"}:
+            continue
+
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        cells = [c for c in cells if c != ""]  # remove células vazias
+
+        if len(cells) < 5:
+            cells += [""] * (5 - len(cells))
+        elif len(cells) > 5:
+            cells = cells[:4] + [" | ".join(cells[4:])]
+
+        # correção de deslocamento
+        if cells[0] == "" and len(cells) > 1 and " + " in cells[1]:
+            cells = [cells[1]] + cells[2:] + [""]
+
+        linhas_validas.append(cells[:5])
+
+    df = pd.DataFrame(linhas_validas, columns=colunas)
+    if df.empty:
+        return df
+    df = df.replace({"": "não informado"})
+    return df
+
+def prompt_por_artigo(par, artigo):
+    """
+    Monta prompt para análise de um único artigo.
+    """
+    a1, a2 = par
+    prompt = (
+        "Você é um especialista em química/farmacêutica. ANALISE APENAS o resumo abaixo.\n\n"
+        f"Par de substâncias: {a1} + {a2}\n"
+        f"Link do artigo: {artigo['link']}\n\n"
+        "Resumo do artigo:\n"
+        f"{artigo['resumo']}\n\n"
+        "INSTRUÇÕES DE SAÍDA (muito importantes):\n"
+        "- Responda com exatamente UMA LINHA no formato Markdown, usando '|' como separador,\n"
+        "  sem '|' no início nem no fim da linha.\n"
+        "- A linha deve conter 5 campos (nesta ordem):\n"
         "  Substâncias envolvidas | Existe interação? (sim/não) | Tipo de interação | Forma farmacêutica | Link da fonte\n"
         "- Para 'Substâncias envolvidas' use: '<A1> + <A2>' (por exemplo: Ácido ascórbico + Riboflavina).\n"
         "- Para 'Link da fonte' use o link exato fornecido acima.\n"
-        "- Se não houver interação descrita, escreva 'não' na coluna 'Existe interação?'.\n"
         "- Se não houver interação descrita, não liste na tabela.\n"
         "- Se algum campo não puder ser inferido do artigo, escreva 'não informado' nesse campo.\n"
         "- NÃO inclua cabeçalho, linhas de separador (---) nem texto adicional.\n"
@@ -45,8 +117,6 @@ def markdown_to_df(md_text: str) -> pd.DataFrame:
 
 def gerar_tabela_interacoes(ativos, max_por_par=5):
     """
-    Para cada par: busca até max_por_par artigos e pede ao LLM que analise cada artigo separadamente.
-    Retorna DataFrame consolidado (uma linha por artigo).
     Para cada par: busca os artigos e pede ao LLM que analise cada artigo separadamente.
     Retorna DataFrame consolidado.
     """
