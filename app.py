@@ -16,7 +16,7 @@ llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash", temperature=0.2)
 
 # Configuração da página
 st.set_page_config(page_title="Pesquisa de Interações", layout="centered")
-st.title("🔍 Pesquisa de Interações entre Ativos (por artigo)")
+st.title("🔍 Pesquisa de Interações")
 
 # Histórico do chat
 if "messages" not in st.session_state:
@@ -55,10 +55,6 @@ def buscar_artigos_pubmed(a1, a2, max_artigos=5):
     return artigos
 
 def markdown_to_df(md_text: str) -> pd.DataFrame:
-    """
-    Parser robusto para linhas Markdown com pipes.
-    Retorna DataFrame com as 5 colunas esperadas.
-    """
     colunas = [
         "Substâncias envolvidas",
         "Existe interação? (sim/não)",
@@ -113,7 +109,7 @@ def prompt_por_artigo(par, artigo):
         "  Substâncias envolvidas | Existe interação? (sim/não) | Tipo de interação | Forma farmacêutica | Link da fonte\n"
         "- Para 'Substâncias envolvidas' use: '<A1> + <A2>' (por exemplo: Ácido ascórbico + Riboflavina).\n"
         "- Para 'Link da fonte' use o link exato fornecido acima.\n"
-        "- Se não houver interação descrita, escreva 'não' na coluna 'Existe interação?'.\n"
+        "- Se não houver interação descrita, não liste na tabela.\n"
         "- Se algum campo não puder ser inferido do artigo, escreva 'não informado' nesse campo.\n"
         "- NÃO inclua cabeçalho, linhas de separador (---) nem texto adicional.\n"
     )
@@ -121,8 +117,8 @@ def prompt_por_artigo(par, artigo):
 
 def gerar_tabela_interacoes(ativos, max_por_par=5):
     """
-    Para cada par: busca até max_por_par artigos e pede ao LLM que analise cada artigo separadamente.
-    Retorna DataFrame consolidado (uma linha por artigo).
+    Para cada par: busca os artigos e pede ao LLM que analise cada artigo separadamente.
+    Retorna DataFrame consolidado.
     """
     pares = list(itertools.combinations(ativos, 2))
     df_total = pd.DataFrame(columns=[
