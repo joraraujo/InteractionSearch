@@ -210,6 +210,5 @@ if prompt := st.chat_input("Informe os ativos separados por vírgula..."):
 
         with st.chat_message("assistant"):
             st.dataframe(df, use_container_width=True)
-            st.markdown("👆 Tabela gerada. Use o ícone de download (⬇️) no canto inferior direito para baixar como CSV.")
 
         st.session_state.messages.append({"role": "assistant", "content": "Segue a tabela (uma linha por artigo)."})
