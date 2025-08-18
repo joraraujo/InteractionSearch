@@ -75,7 +75,15 @@ def gerar_tabela_interacoes(ativos):
     resposta_llm = llm.invoke(prompt_llm).content
 
     # Converter resposta em DataFrame
-    linhas = [l.strip() for l in resposta_llm.splitlines() if l.strip() and "|" in l]
+    linhas = []
+    for l in resposta_llm.splitlines():
+        l = l.strip()
+        # ignora cabeçalho e linhas de separador da tabela Markdown
+        if not l or "---" in l or "Substâncias envolvidas" in l:
+            continue
+        if "|" in l:
+            linhas.append(l)
+
     dados = []
     for linha in linhas:
         partes = [p.strip() for p in linha.split("|")]
