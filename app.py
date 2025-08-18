@@ -54,13 +54,21 @@ def buscar_artigos_pubmed(a1, a2, max_artigos=3):
 def gerar_tabela_interacoes(ativos):
     """Busca abstracts no PubMed e gera análise com o Gemini."""
     pares = list(itertools.combinations(ativos, 2))
+    
     prompt_llm = (
-        "Você é um especialista em química farmacêutica.\n"
-        "Com base nos resumos dos artigos a seguir, identifique se há interação entre os pares de substâncias listados.\n"
-        "Responda estritamente no formato de tabela Markdown com as colunas:\n"
-        "Substâncias envolvidas | Existe interação? (sim/não) | Tipo de interação "
-        "(química, física, fotossensibilidade, etc.) | Forma farmacêutica | Link da fonte\n\n"
+    "Você é um especialista em química farmacêutica.\n"
+    "Com base SOMENTE nos resumos dos artigos a seguir, identifique se há interação entre os pares de substâncias listados.\n"
+    "REGRAS DE FORMATAÇÃO DA RESPOSTA:\n"
+    "- Responda apenas com uma única tabela Markdown.\n"
+    "- Colunas (nesta ordem exata): "
+    "Substâncias envolvidas | Existe interação? (sim/não) | Tipo de interação "
+    "(química, física, fotossensibilidade, etc.) | Forma farmacêutica | Link da fonte\n"
+    "- NÃO coloque '|' no INÍCIO nem no FIM de cada linha da tabela.\n"
+    "- NÃO inclua cabeçalho repetido nem linhas de separador (---).\n"
+    "- Para 'Link da fonte', use EXATAMENTE um dos links listados no bloco do par correspondente. Não invente URLs.\n"
+    "- Se nenhum artigo existir para um par, preencha 'N/A' no link e 'não informado' quando o tipo/forma não puder ser inferido.\n\n"
     )
+
 
     for a1, a2 in pares:
         artigos = buscar_artigos_pubmed(a1, a2)
