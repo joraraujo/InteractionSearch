@@ -8,7 +8,7 @@ import pandas as pd
 # =============================
 # Configurações iniciais
 # =============================
-os.environ["GOOGLE_API_KEY"] = "AIzaSyCNQbHda-5qjwsKnkVK_S7N9aW8jRZ488c"
+google_api_key = st.secrets["GOOGLE_API_KEY"]
 Entrez.email = "jorge.oa@hotmail.com"
 
 # Inicializa LLM
