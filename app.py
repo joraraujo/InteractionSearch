@@ -16,11 +16,15 @@ llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash", temperature=0.2)
 
 # Configuração da página
 st.set_page_config(page_title="Pesquisa de Interações", layout="centered")
-st.title("🔍 Pesquisa de Interações")
+st.title("🔍 Pesquisa de Interações entre Ativos (por artigo)")
 
 # Histórico do chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+# Flag para ocultar input após envio
+if "input_disabled" not in st.session_state:
+    st.session_state.input_disabled = False
 
 # Exibe histórico
 for msg in st.session_state.messages:
@@ -30,6 +34,25 @@ for msg in st.session_state.messages:
 # =============================
 # Funções auxiliares
 # =============================
+
+def validar_ativo(ativo):
+    """
+    Verifica se o termo é um ativo válido consultando o PubMed.
+    Retorna True se houver pelo menos 1 resultado com foco em substâncias.
+    """
+    if not ativo or len(ativo.strip()) < 2:
+        return False
+
+    # Busca no PubMed com foco em substâncias químicas/farmacêuticas
+    query = f"{ativo} AND (drug OR compound OR substance OR vitamin OR mineral OR chemical OR pharmacology)"
+    try:
+        handle = Entrez.esearch(db="pubmed", term=query, retmax=1)
+        record = Entrez.read(handle)
+        handle.close()
+        return len(record["IdList"]) > 0
+    except Exception as e:
+        st.error(f"Erro ao validar '{ativo}': {e}")
+        return False
 
 def buscar_artigos_pubmed(a1, a2, max_artigos=5):
     """
@@ -55,6 +78,9 @@ def buscar_artigos_pubmed(a1, a2, max_artigos=5):
     return artigos
 
 def markdown_to_df(md_text: str) -> pd.DataFrame:
+    """
+    Retorna DataFrame com as 5 colunas esperadas.
+    """
     colunas = [
         "Substâncias envolvidas",
         "Existe interação? (sim/não)",
@@ -93,7 +119,7 @@ def markdown_to_df(md_text: str) -> pd.DataFrame:
 
 def prompt_por_artigo(par, artigo):
     """
-    Monta prompt para análise de um único artigo.
+    Monta prompt para análise do artigo.
     """
     a1, a2 = par
     prompt = (
@@ -109,7 +135,7 @@ def prompt_por_artigo(par, artigo):
         "  Substâncias envolvidas | Existe interação? (sim/não) | Tipo de interação | Forma farmacêutica | Link da fonte\n"
         "- Para 'Substâncias envolvidas' use: '<A1> + <A2>' (por exemplo: Ácido ascórbico + Riboflavina).\n"
         "- Para 'Link da fonte' use o link exato fornecido acima.\n"
-        "- Se não houver interação descrita, não liste na tabela.\n"
+        "- Se não houver interação descrita, não liste na tabela'.\n"
         "- Se algum campo não puder ser inferido do artigo, escreva 'não informado' nesse campo.\n"
         "- NÃO inclua cabeçalho, linhas de separador (---) nem texto adicional.\n"
     )
@@ -117,8 +143,8 @@ def prompt_por_artigo(par, artigo):
 
 def gerar_tabela_interacoes(ativos, max_por_par=5):
     """
-    Para cada par: busca os artigos e pede ao LLM que analise cada artigo separadamente.
-    Retorna DataFrame consolidado.
+    Para cada par: busca até max_por_par artigos e pede ao LLM que analise cada artigo separadamente.
+    Retorna DataFrame consolidado (uma linha por artigo).
     """
     pares = list(itertools.combinations(ativos, 2))
     df_total = pd.DataFrame(columns=[
@@ -160,7 +186,7 @@ def gerar_tabela_interacoes(ativos, max_por_par=5):
 
             df_parsed = markdown_to_df(resposta)
             if not df_parsed.empty:
-                df_parsed.loc[:, "Link da fonte"] = artigo['link']  # Garante link correto
+                df_parsed.loc[:, "Link da fonte"] = artigo['link']
                 df_total = pd.concat([df_total, df_parsed], ignore_index=True)
             else:
                 df_total = pd.concat([df_total, pd.DataFrame([{
@@ -185,26 +211,45 @@ with st.sidebar:
     temperature = st.slider("Temperatura do LLM", min_value=0.0, max_value=1.0, value=0.2, step=0.1)
     llm.temperature = temperature
 
-st.markdown("Digite os ativos separados por vírgula no campo de chat abaixo.")
+st.markdown("Digite os ativos separados por vírgula no campo abaixo.")
 
-# Entrada de ativos (chat)
-if prompt := st.chat_input("Informe os ativos separados por vírgula..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# Campo de entrada condicional
+if not st.session_state.input_disabled:
+    if prompt := st.chat_input("Informe os ativos separados por vírgula..."):
+        # Marca input como desativado
+        st.session_state.input_disabled = True
 
-    ativos = [a.strip() for a in prompt.split(",") if a.strip()]
+        # Adiciona ao histórico
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    if len(ativos) < 2:
-        resposta = "⚠️ Informe pelo menos dois ativos."
-        with st.chat_message("assistant"):
-            st.markdown(resposta)
-        st.session_state.messages.append({"role": "assistant", "content": resposta})
-    else:
-        with st.spinner("Executando buscas e análises (isso pode levar um tempo)..."):
-            df = gerar_tabela_interacoes(ativos, max_por_par=max_por_par)
+        ativos = [a.strip() for a in prompt.split(",") if a.strip()]
+        invalidos = [a for a in ativos if not validar_ativo(a)]
 
-        with st.chat_message("assistant"):
-            st.dataframe(df, use_container_width=True)
+        if invalidos:
+            resposta = f"⚠️ Os seguintes termos não parecem ser ativos válidos: `{', '.join(invalidos)}`. Por favor, revise e tente novamente."
+            with st.chat_message("assistant"):
+                st.markdown(resposta)
+            st.session_state.messages.append({"role": "assistant", "content": resposta})
+            # Reativa o input para correção
+            st.session_state.input_disabled = False
+        else:
+            if len(ativos) < 2:
+                resposta = "⚠️ Informe pelo menos dois ativos."
+                with st.chat_message("assistant"):
+                    st.markdown(resposta)
+                st.session_state.messages.append({"role": "assistant", "content": resposta})
+                st.session_state.input_disabled = False
+            else:
+                with st.spinner("Executando buscas e análises (isso pode levar um tempo)..."):
+                    df = gerar_tabela_interacoes(ativos, max_por_par=max_por_par)
+                with st.chat_message("assistant"):
+                    st.dataframe(df, use_container_width=True)
+                st.session_state.messages.append({"role": "assistant", "content": "Segue a tabela (uma linha por artigo)."})
 
-        st.session_state.messages.append({"role": "assistant", "content": "Segue a tabela (uma linha por artigo)."})
+# Botão para reiniciar (opcional)
+if st.session_state.input_disabled:
+    if st.button("🔄 Inserir novos ativos"):
+        st.session_state.input_disabled = False
+        st.rerun()
