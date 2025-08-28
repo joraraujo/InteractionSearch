@@ -108,6 +108,7 @@ def prompt_por_artigo(par, artigo):
         "- A linha deve conter 5 campos (nesta ordem):\n"
         "  Substâncias envolvidas | Existe interação? (sim/não) | Tipo de interação | Forma farmacêutica | Link da fonte\n"
         "- Para 'Substâncias envolvidas' use: '<A1> + <A2>' (por exemplo: Ácido ascórbico + Riboflavina).\n"
+        "- Para 'Forma farmacêutica' é a forma do materail, Ex: liquido, sólido, semi-sólido.\n"
         "- Para 'Link da fonte' use o link exato fornecido acima.\n"
         "- Se não houver interação descrita, não liste na tabela.\n"
         "- Se algum campo não puder ser inferido do artigo, escreva 'não informado' nesse campo.\n"
