@@ -35,7 +35,7 @@ def buscar_artigos_pubmed(a1, a2, max_artigos=5):
     """
     Busca artigos no PubMed e retorna lista de dicts com id, resumo e link.
     """
-    query = f"{a1} AND {a2}"
+    query = f"({a1} AND {a2}) AND (chemical interaction OR drug interaction OR compatibility OR stability)"
     handle = Entrez.esearch(db="pubmed", term=query, retmax=max_artigos)
     record = Entrez.read(handle)
     ids = record.get("IdList", [])
